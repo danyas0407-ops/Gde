@@ -1,0 +1,617 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Чепуха 3D - Онлайн Multiplayer</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Three.js для 3D графики -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <!-- PeerJS для онлайн мультиплеера без сервера -->
+    <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
+    <!-- Шрифты Google -->
+    <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;700;900&display=swap" rel="stylesheet">
+    
+    <style>
+        body {
+            font-family: 'Nunito', sans-serif;
+            background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+            color: white;
+            overflow-x: hidden;
+            min-height: 100vh;
+        }
+        .glass-panel {
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            border-radius: 1.5rem;
+            box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.3);
+        }
+        canvas { display: block; outline: none; }
+        .hidden-screen { display: none !important; }
+        .star-btn:hover { transform: scale(1.2); }
+        .star-btn { transition: transform 0.2s; font-size: 2.5rem; cursor: pointer; }
+    </style>
+</head>
+<body class="flex flex-col lg:flex-row h-screen">
+
+    <!-- Левая часть: 3D Персонаж -->
+    <div class="w-full lg:w-1/2 h-64 lg:h-full relative flex flex-col justify-center items-center p-4 border-b lg:border-b-0 lg:border-r border-white/20">
+        <h1 class="text-3xl lg:text-5xl font-black mb-2 z-10 absolute top-6 drop-shadow-lg text-center w-full tracking-wider">ЧЕПУХА <span class="text-yellow-400">ОНЛАЙН</span></h1>
+        
+        <div id="canvas-container" class="w-full h-full absolute inset-0"></div>
+
+        <div class="glass-panel absolute top-6 right-6 px-4 py-2 flex items-center gap-2 z-10 font-bold text-yellow-300 text-lg">
+            <span>🪙</span><span id="coin-balance">0</span>
+        </div>
+    </div>
+
+    <!-- Правая часть: Интерфейс -->
+    <div class="w-full lg:w-1/2 h-full p-4 lg:p-8 flex flex-col z-10 overflow-y-auto relative">
+        
+        <!-- НАВИГАЦИЯ -->
+        <div class="flex justify-center gap-4 mb-6" id="nav-bar">
+            <button onclick="switchTab('menu')" id="btn-menu" class="glass-panel px-6 py-2 font-bold hover:bg-white/20 transition border-b-4 border-yellow-400">Играть</button>
+            <button onclick="switchTab('shop')" id="btn-shop" class="glass-panel px-6 py-2 font-bold hover:bg-white/20 transition opacity-60 border-b-4 border-transparent">Магазин</button>
+        </div>
+
+        <!-- 1. ЭКРАН ВВОДА НИКА И ВЫБОРА РЕЖИМА -->
+        <div id="tab-menu" class="flex-1 flex flex-col justify-center">
+            <div class="glass-panel p-8 text-center max-w-md mx-auto w-full">
+                <h2 class="text-2xl font-bold mb-4">Как тебя зовут?</h2>
+                <input type="text" id="player-name" placeholder="Твой никнейм..." class="w-full bg-black/30 border-2 border-white/30 rounded-xl px-4 py-3 text-white text-center text-xl mb-6 focus:outline-none focus:border-yellow-400">
+                
+                <div class="grid grid-cols-1 gap-4">
+                    <button onclick="createRoom()" class="bg-gradient-to-r from-green-400 to-emerald-600 hover:from-green-500 hover:to-emerald-700 text-white font-bold py-4 px-6 rounded-xl shadow-lg transition">
+                        Создать комнату (Хост)
+                    </button>
+                    
+                    <div class="relative flex items-center py-2">
+                        <div class="flex-grow border-t border-white/20"></div>
+                        <span class="flex-shrink-0 mx-4 text-white/50 text-sm">ИЛИ</span>
+                        <div class="flex-grow border-t border-white/20"></div>
+                    </div>
+
+                    <input type="text" id="join-code" placeholder="Код комнаты" class="w-full bg-black/30 border-2 border-white/30 rounded-xl px-4 py-3 text-white text-center text-xl tracking-widest uppercase focus:outline-none focus:border-blue-400">
+                    <button onclick="joinRoom()" class="bg-gradient-to-r from-blue-500 to-indigo-600 hover:from-blue-600 hover:to-indigo-700 text-white font-bold py-4 px-6 rounded-xl shadow-lg transition">
+                        Присоединиться
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- 2. ЭКРАН ЛОББИ -->
+        <div id="tab-lobby" class="flex-1 flex flex-col justify-center hidden-screen">
+            <div class="glass-panel p-8 text-center max-w-md mx-auto w-full">
+                <h2 class="text-3xl font-bold mb-2">Комната создана!</h2>
+                <p class="mb-6 opacity-80">Скажи этот код другу:</p>
+                
+                <div class="bg-black/40 border-2 border-yellow-400 rounded-xl p-4 mb-6">
+                    <span class="text-5xl font-black tracking-widest text-yellow-400" id="display-room-code">----</span>
+                </div>
+
+                <div class="bg-white/10 rounded-xl p-4 mb-8 text-left">
+                    <p class="font-bold text-lg mb-2 border-b border-white/20 pb-2">Игроки:</p>
+                    <p class="text-green-300">1. <span id="lobby-player-1">Я</span></p>
+                    <p class="text-gray-400" id="lobby-player-2">2. Ожидание второго игрока...</p>
+                </div>
+
+                <button id="btn-start-game" onclick="startGame()" disabled class="w-full bg-gray-500 text-white/50 font-bold py-4 px-6 rounded-xl shadow-lg transition cursor-not-allowed">
+                    Ждем игрока...
+                </button>
+                <button onclick="location.reload()" class="mt-4 text-sm opacity-60 hover:opacity-100 underline">Отмена (выйти)</button>
+            </div>
+        </div>
+
+        <!-- 3. ЭКРАН ИГРЫ (ОТВЕТЫ НА ВОПРОСЫ) -->
+        <div id="tab-game" class="flex-1 flex flex-col justify-center hidden-screen">
+            <div class="glass-panel p-8 text-center max-w-md mx-auto w-full">
+                <div class="flex justify-between items-center mb-4 text-sm font-bold opacity-70">
+                    <span id="question-counter">Вопрос 1/7</span>
+                    <span class="text-yellow-400" id="opponent-status">Соперник думает...</span>
+                </div>
+                
+                <h2 class="text-2xl lg:text-3xl font-bold mb-6 min-h-[4rem] flex items-center justify-center" id="question-text">Кто это был?</h2>
+                
+                <input type="text" id="answer-input" placeholder="Твой ответ..." class="w-full bg-black/30 border-2 border-white/50 rounded-xl px-4 py-4 text-white text-lg mb-6 focus:outline-none focus:border-yellow-400">
+                
+                <button onclick="submitAnswer()" class="w-full bg-gradient-to-r from-pink-500 to-orange-400 hover:from-pink-600 hover:to-orange-500 text-white font-bold py-4 px-6 rounded-xl shadow-lg transition">
+                    Ответить
+                </button>
+            </div>
+        </div>
+
+        <!-- 4. ЭКРАН ОЖИДАНИЯ СОПЕРНИКА -->
+        <div id="tab-waiting" class="flex-1 flex flex-col justify-center items-center text-center hidden-screen">
+            <span class="text-6xl mb-6 animate-spin">⏳</span>
+            <h2 class="text-3xl font-bold mb-2">Ответы готовы!</h2>
+            <p class="text-lg opacity-80">Ждем, пока <span id="wait-opponent-name" class="font-bold text-yellow-300">соперник</span> допишет свою историю...</p>
+        </div>
+
+        <!-- 5. ЭКРАН ОЦЕНКИ -->
+        <div id="tab-vote" class="flex-1 flex flex-col justify-center hidden-screen">
+            <div class="glass-panel p-6 max-w-lg mx-auto w-full text-center">
+                <h2 class="text-2xl font-bold mb-2 text-yellow-400">Оцени историю!</h2>
+                <p class="mb-4 opacity-80 text-sm">Историю сочинил(а): <span id="vote-author" class="font-bold"></span></p>
+                
+                <div class="bg-black/40 p-5 rounded-xl mb-6 text-left text-lg leading-relaxed shadow-inner" id="opponent-story-display">
+                    <!-- Сюда вставится история соперника -->
+                </div>
+
+                <p class="font-bold mb-3">Насколько смешно?</p>
+                <div class="flex justify-center gap-2 mb-4">
+                    <button class="star-btn" onclick="sendRating(1)">⭐</button>
+                    <button class="star-btn" onclick="sendRating(2)">⭐</button>
+                    <button class="star-btn" onclick="sendRating(3)">⭐</button>
+                    <button class="star-btn" onclick="sendRating(4)">⭐</button>
+                    <button class="star-btn" onclick="sendRating(5)">⭐</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- 6. ЭКРАН РЕЗУЛЬТАТОВ -->
+        <div id="tab-result" class="flex-1 flex flex-col justify-center hidden-screen">
+            <div class="glass-panel p-8 text-center max-w-md mx-auto w-full">
+                <h1 class="text-5xl mb-4" id="result-emoji">🏆</h1>
+                <h2 class="text-3xl font-black mb-2" id="result-title">Победа!</h2>
+                <p class="mb-6 opacity-80" id="result-subtitle">Твоя история оказалась смешнее!</p>
+                
+                <div class="flex justify-around items-center bg-black/30 rounded-xl p-4 mb-6">
+                    <div class="text-center">
+                        <p class="text-sm opacity-70" id="res-name-1">Я</p>
+                        <p class="text-2xl font-bold text-yellow-400"><span id="res-score-1">0</span> ⭐</p>
+                    </div>
+                    <div class="text-3xl font-black text-white/30">VS</div>
+                    <div class="text-center">
+                        <p class="text-sm opacity-70" id="res-name-2">Соперник</p>
+                        <p class="text-2xl font-bold text-gray-300"><span id="res-score-2">0</span> ⭐</p>
+                    </div>
+                </div>
+
+                <p class="text-xl font-bold text-green-400 mb-6" id="reward-text">+100 🪙</p>
+
+                <button onclick="location.reload()" class="w-full bg-gradient-to-r from-blue-500 to-indigo-600 hover:from-blue-600 hover:to-indigo-700 text-white font-bold py-4 px-6 rounded-xl shadow-lg transition">
+                    В главное меню
+                </button>
+            </div>
+        </div>
+
+        <!-- 7. ЭКРАН МАГАЗИНА -->
+        <div id="tab-shop" class="flex-1 flex flex-col hidden-screen">
+            <div class="glass-panel p-6 flex-1 overflow-y-auto">
+                <h2 class="text-2xl font-bold mb-6 text-center">Магазин скинов</h2>
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4" id="shop-items"></div>
+            </div>
+        </div>
+
+    </div>
+
+    <!-- ЛОГИКА ИГРЫ И СЕТИ -->
+    <script>
+        // ==========================================
+        // БАЗОВЫЕ НАСТРОЙКИ
+        // ==========================================
+        const questions = [
+            "Кто это был?",
+            "С кем он(а) был(а)?",
+            "Куда они пошли?",
+            "Когда это происходило?",
+            "Что они там делали?",
+            "Кто вдруг пришел и что закричал?",
+            "Чем всё это закончилось?"
+        ];
+
+        const skins = {
+            classic: { id: 'classic', name: 'Студент', price: 0, color: 0x3b82f6 },
+            red: { id: 'red', name: 'Пожарный', price: 50, color: 0xef4444 },
+            gold: { id: 'gold', name: 'Золотой VIP', price: 150, color: 0xffd700 },
+            ninja: { id: 'ninja', name: 'Ниндзя', price: 250, color: 0x1f2937 },
+            neon: { id: 'neon', name: 'Киберпанк', price: 400, color: 0x10b981 },
+            pink: { id: 'pink', name: 'Барби', price: 500, color: 0xff69b4 }
+        };
+
+        let coins = parseInt(localStorage.getItem('chepuha_coins')) || 0;
+        let ownedSkins = JSON.parse(localStorage.getItem('chepuha_skins')) || ['classic'];
+        let currentSkinId = localStorage.getItem('chepuha_current_skin') || 'classic';
+        
+        document.getElementById('coin-balance').innerText = coins;
+        updateShopUI();
+
+        // Навигация
+        function switchTab(tab) {
+            ['tab-menu', 'tab-shop', 'tab-lobby', 'tab-game', 'tab-waiting', 'tab-vote', 'tab-result'].forEach(t => {
+                document.getElementById(t).classList.add('hidden-screen');
+            });
+            document.getElementById('tab-' + tab).classList.remove('hidden-screen');
+
+            if(tab === 'menu' || tab === 'shop') {
+                document.getElementById('nav-bar').style.display = 'flex';
+                document.getElementById('btn-' + tab).classList.add('border-yellow-400', 'opacity-100');
+                document.getElementById('btn-' + tab).classList.remove('border-transparent', 'opacity-60');
+                const other = tab === 'menu' ? 'shop' : 'menu';
+                document.getElementById('btn-' + other).classList.add('border-transparent', 'opacity-60');
+                document.getElementById('btn-' + other).classList.remove('border-yellow-400', 'opacity-100');
+            } else {
+                document.getElementById('nav-bar').style.display = 'none'; // В игре прячем табы
+            }
+        }
+
+        // ==========================================
+        // СЕТЕВАЯ ЧАСТЬ (PeerJS)
+        // ==========================================
+        const PREFIX = 'chepuha-3d-game-';
+        let peer = null;
+        let conn = null;
+        let isHost = false;
+        
+        let myName = '';
+        let opponentName = 'Соперник';
+        
+        let myAnswers = [];
+        let opponentAnswers = [];
+        let myRatingForOpponent = 0;
+        let opponentRatingForMe = 0;
+        let currentQIndex = 0;
+
+        function getPlayerName() {
+            let name = document.getElementById('player-name').value.trim();
+            if(!name) name = "Игрок_" + Math.floor(Math.random() * 100);
+            myName = name;
+            return name;
+        }
+
+        function createRoom() {
+            getPlayerName();
+            const roomCode = Math.floor(1000 + Math.random() * 9000).toString(); // 4 цифры
+            const peerId = PREFIX + roomCode;
+            
+            peer = new Peer(peerId);
+            isHost = true;
+
+            peer.on('open', (id) => {
+                switchTab('lobby');
+                document.getElementById('display-room-code').innerText = roomCode;
+                document.getElementById('lobby-player-1').innerText = myName + " (Хост)";
+            });
+
+            peer.on('connection', (connection) => {
+                conn = connection;
+                setupConnection();
+            });
+
+            peer.on('error', (err) => {
+                alert("Ошибка сети. Попробуйте еще раз.");
+                console.error(err);
+            });
+        }
+
+        function joinRoom() {
+            getPlayerName();
+            const code = document.getElementById('join-code').value.trim();
+            if(code.length !== 4) { alert("Код должен состоять из 4 цифр!"); return; }
+            
+            peer = new Peer();
+            isHost = false;
+
+            peer.on('open', (id) => {
+                conn = peer.connect(PREFIX + code);
+                setupConnection();
+                switchTab('lobby');
+                document.getElementById('display-room-code').innerText = code;
+                document.getElementById('lobby-player-1').innerText = "Хост комнаты";
+                document.getElementById('lobby-player-2').innerText = myName + " (Я)";
+                document.getElementById('lobby-player-2').classList.replace('text-gray-400', 'text-green-300');
+            });
+
+            peer.on('error', (err) => {
+                alert("Не удалось найти комнату! Проверь код.");
+                location.reload();
+            });
+        }
+
+        function setupConnection() {
+            conn.on('open', () => {
+                // Как только соединились, отправляем свой ник
+                conn.send({ type: 'join', name: myName });
+            });
+
+            conn.on('data', (data) => {
+                // ОБРАБОТКА ВСЕХ СЕТЕВЫХ СООБЩЕНИЙ
+                if (data.type === 'join') {
+                    opponentName = data.name;
+                    if(isHost) {
+                        document.getElementById('lobby-player-2').innerText = opponentName + " (Подключен!)";
+                        document.getElementById('lobby-player-2').classList.replace('text-gray-400', 'text-green-300');
+                        const btn = document.getElementById('btn-start-game');
+                        btn.disabled = false;
+                        btn.classList.replace('bg-gray-500', 'bg-yellow-500');
+                        btn.classList.replace('text-white/50', 'text-black');
+                        btn.innerText = "НАЧАТЬ ИГРУ!";
+                        // Хост отвечает своим ником
+                        conn.send({ type: 'lobby_info', hostName: myName });
+                    }
+                } 
+                else if (data.type === 'lobby_info') {
+                    opponentName = data.hostName;
+                    document.getElementById('lobby-player-1').innerText = opponentName + " (Хост)";
+                    document.getElementById('btn-start-game').innerText = "Ждем, когда хост начнет...";
+                }
+                else if (data.type === 'start') {
+                    startLocalGame();
+                }
+                else if (data.type === 'answers') {
+                    opponentAnswers = data.answers;
+                    checkBothFinished();
+                }
+                else if (data.type === 'rate') {
+                    opponentRatingForMe = data.score;
+                    checkBothRated();
+                }
+            });
+
+            conn.on('close', () => {
+                alert("Соперник отключился!");
+                location.reload();
+            });
+        }
+
+        // ==========================================
+        // ЛОГИКА САМОЙ ИГРЫ
+        // ==========================================
+        function startGame() {
+            // Только хост может нажать кнопку
+            conn.send({ type: 'start' });
+            startLocalGame();
+        }
+
+        function startLocalGame() {
+            switchTab('game');
+            myAnswers = [];
+            currentQIndex = 0;
+            updateQuestionUI();
+        }
+
+        function updateQuestionUI() {
+            document.getElementById('question-counter').innerText = `Вопрос ${currentQIndex + 1} из ${questions.length}`;
+            document.getElementById('question-text').innerText = questions[currentQIndex];
+            document.getElementById('answer-input').value = '';
+            document.getElementById('answer-input').focus();
+        }
+
+        function submitAnswer() {
+            const val = document.getElementById('answer-input').value.trim();
+            if(!val) { alert("Напиши хоть что-то!"); return; }
+
+            myAnswers.push(val);
+            currentQIndex++;
+
+            if (currentQIndex < questions.length) {
+                updateQuestionUI();
+            } else {
+                // Закончили отвечать
+                switchTab('waiting');
+                document.getElementById('wait-opponent-name').innerText = opponentName;
+                conn.send({ type: 'answers', answers: myAnswers });
+                checkBothFinished();
+            }
+        }
+
+        document.getElementById('answer-input').addEventListener('keypress', function (e) {
+            if (e.key === 'Enter') submitAnswer();
+        });
+
+        function checkBothFinished() {
+            // Если оба прислали ответы, переходим к оценке
+            if (myAnswers.length === questions.length && opponentAnswers.length === questions.length) {
+                switchTab('vote');
+                
+                // Генерируем историю СОПЕРНИКА, чтобы мы её оценили
+                const story = `
+                    Однажды <b>${opponentAnswers[0]}</b> 
+                    вместе с <b>${opponentAnswers[1]}</b> 
+                    отправились в <b>${opponentAnswers[2]}</b>. 
+                    Это было <b>${opponentAnswers[3]}</b>.
+                    Там они <b>${opponentAnswers[4]}</b>. 
+                    Вдруг туда пришел <b>${opponentAnswers[5]}</b>. 
+                    В итоге всё закончилось тем, что <b>${opponentAnswers[6]}</b>!
+                `;
+                
+                document.getElementById('vote-author').innerText = opponentName;
+                document.getElementById('opponent-story-display').innerHTML = story;
+            }
+        }
+
+        function sendRating(score) {
+            myRatingForOpponent = score;
+            // Прячем интерфейс оценки, показываем спиннер
+            document.getElementById('tab-vote').innerHTML = `
+                <div class="glass-panel p-8 text-center max-w-md mx-auto w-full">
+                    <h2 class="text-2xl font-bold mb-4">Оценка отправлена!</h2>
+                    <p>Ждем, пока ${opponentName} оценит твою историю...</p>
+                </div>
+            `;
+            conn.send({ type: 'rate', score: score });
+            checkBothRated();
+        }
+
+        function checkBothRated() {
+            if (myRatingForOpponent > 0 && opponentRatingForMe > 0) {
+                showFinalResults();
+            }
+        }
+
+        function showFinalResults() {
+            switchTab('result');
+            
+            document.getElementById('res-name-1').innerText = myName;
+            document.getElementById('res-score-1').innerText = opponentRatingForMe; // Звезды, которые дали мне
+            
+            document.getElementById('res-name-2').innerText = opponentName;
+            document.getElementById('res-score-2').innerText = myRatingForOpponent; // Звезды, которые я дал
+
+            let reward = 0;
+            if (opponentRatingForMe > myRatingForOpponent) {
+                document.getElementById('result-title').innerText = "Ты победил!";
+                document.getElementById('result-subtitle').innerText = "Твоя история оказалась смешнее!";
+                document.getElementById('result-emoji').innerText = "🏆";
+                reward = 100;
+            } else if (opponentRatingForMe < myRatingForOpponent) {
+                document.getElementById('result-title').innerText = "Ты проиграл...";
+                document.getElementById('result-subtitle').innerText = `${opponentName} оказался смешнее!`;
+                document.getElementById('result-emoji').innerText = "😢";
+                reward = 20; // Утешительный приз
+            } else {
+                document.getElementById('result-title').innerText = "Ничья!";
+                document.getElementById('result-subtitle').innerText = "Вы оба гении комедии!";
+                document.getElementById('result-emoji').innerText = "🤝";
+                reward = 50;
+            }
+
+            document.getElementById('reward-text').innerText = `+${reward} 🪙`;
+            coins += reward;
+            saveData();
+            document.getElementById('coin-balance').innerText = coins;
+            
+            if(reward >= 50) characterJump();
+        }
+
+        // ==========================================
+        // МАГАЗИН И СОХРАНЕНИЕ
+        // ==========================================
+        function updateShopUI() {
+            const container = document.getElementById('shop-items');
+            container.innerHTML = '';
+            for (const key in skins) {
+                const skin = skins[key];
+                const isOwned = ownedSkins.includes(skin.id);
+                const isEquipped = currentSkinId === skin.id;
+
+                let btnHtml = '';
+                if (isEquipped) {
+                    btnHtml = `<button disabled class="w-full bg-green-500 text-white py-2 rounded font-bold opacity-70 cursor-not-allowed">Надето</button>`;
+                } else if (isOwned) {
+                    btnHtml = `<button onclick="equipSkin('${skin.id}')" class="w-full bg-blue-500 hover:bg-blue-600 text-white py-2 rounded font-bold transition">Надеть</button>`;
+                } else {
+                    const canAfford = coins >= skin.price;
+                    btnHtml = `<button onclick="buySkin('${skin.id}')" class="w-full ${canAfford ? 'bg-yellow-500 hover:bg-yellow-600' : 'bg-gray-500 opacity-50 cursor-not-allowed'} text-white py-2 rounded font-bold transition">Купить за ${skin.price} 🪙</button>`;
+                }
+
+                container.innerHTML += `
+                    <div class="bg-white/10 border border-white/20 p-4 rounded-xl text-center">
+                        <div class="w-16 h-16 rounded-full mx-auto mb-3 border-4 border-white/30" style="background-color: #${skin.color.toString(16).padStart(6, '0')}"></div>
+                        <h3 class="font-bold text-lg mb-3">${skin.name}</h3>
+                        ${btnHtml}
+                    </div>
+                `;
+            }
+        }
+
+        function buySkin(id) {
+            if (coins >= skins[id].price) {
+                coins -= skins[id].price;
+                ownedSkins.push(id);
+                equipSkin(id);
+            }
+        }
+
+        function equipSkin(id) {
+            currentSkinId = id;
+            saveData();
+            updateShopUI();
+            update3DSkin();
+        }
+
+        function saveData() {
+            localStorage.setItem('chepuha_coins', coins);
+            localStorage.setItem('chepuha_skins', JSON.stringify(ownedSkins));
+            localStorage.setItem('chepuha_current_skin', currentSkinId);
+        }
+
+        // ==========================================
+        // 3D ГРАФИКА (Three.js)
+        // ==========================================
+        const container = document.getElementById('canvas-container');
+        const scene = new THREE.Scene();
+        const camera = new THREE.PerspectiveCamera(45, container.clientWidth / container.clientHeight, 0.1, 100);
+        camera.position.set(0, 2, 8);
+        const renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true });
+        renderer.setSize(container.clientWidth, container.clientHeight);
+        renderer.setPixelRatio(window.devicePixelRatio);
+        container.appendChild(renderer.domElement);
+
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+        scene.add(ambientLight);
+        const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
+        dirLight.position.set(5, 10, 5);
+        scene.add(dirLight);
+
+        const characterGroup = new THREE.Group();
+        let charMaterial = new THREE.MeshStandardMaterial({ 
+            color: skins[currentSkinId].color, roughness: 0.4, metalness: 0.1 
+        });
+
+        const head = new THREE.Mesh(new THREE.SphereGeometry(0.6, 32, 32), charMaterial);
+        head.position.y = 2.2; characterGroup.add(head);
+
+        const eyeM = new THREE.MeshBasicMaterial({color: 0x000000});
+        const eyeR = new THREE.Mesh(new THREE.SphereGeometry(0.1, 16, 16), eyeM);
+        eyeR.position.set(0.25, 2.3, 0.5); characterGroup.add(eyeR);
+        const eyeL = new THREE.Mesh(new THREE.SphereGeometry(0.1, 16, 16), eyeM);
+        eyeL.position.set(-0.25, 2.3, 0.5); characterGroup.add(eyeL);
+
+        const body = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.5, 1.5, 32), charMaterial);
+        body.position.y = 1; characterGroup.add(body);
+
+        const armGeo = new THREE.CylinderGeometry(0.15, 0.15, 1.2, 16);
+        const armR = new THREE.Mesh(armGeo, charMaterial);
+        armR.position.set(0.8, 1.2, 0); armR.rotation.z = Math.PI / 8; characterGroup.add(armR);
+        const armL = new THREE.Mesh(armGeo, charMaterial);
+        armL.position.set(-0.8, 1.2, 0); armL.rotation.z = -Math.PI / 8; characterGroup.add(armL);
+
+        const legGeo = new THREE.CylinderGeometry(0.2, 0.2, 1, 16);
+        const legR = new THREE.Mesh(legGeo, charMaterial);
+        legR.position.set(0.25, -0.2, 0); characterGroup.add(legR);
+        const legL = new THREE.Mesh(legGeo, charMaterial);
+        legL.position.set(-0.25, -0.2, 0); characterGroup.add(legL);
+
+        characterGroup.position.y = -1;
+        scene.add(characterGroup);
+
+        function update3DSkin() { charMaterial.color.setHex(skins[currentSkinId].color); }
+
+        let time = 0, isJumping = false, jumpVelocity = 0, baseY = -1;
+        function characterJump() { isJumping = true; jumpVelocity = 0.15; }
+
+        function animate() {
+            requestAnimationFrame(animate);
+            time += 0.03;
+            if (!isJumping) {
+                characterGroup.position.y = baseY + Math.sin(time) * 0.1;
+                armR.rotation.z = Math.PI / 8 + Math.sin(time) * 0.05;
+                armL.rotation.z = -Math.PI / 8 - Math.sin(time) * 0.05;
+                characterGroup.rotation.y = Math.sin(time * 0.5) * 0.3;
+            } else {
+                characterGroup.position.y += jumpVelocity;
+                jumpVelocity -= 0.008;
+                characterGroup.rotation.y += 0.15;
+                if (characterGroup.position.y <= baseY) {
+                    characterGroup.position.y = baseY;
+                    isJumping = false;
+                    characterGroup.rotation.y = 0;
+                }
+            }
+            renderer.render(scene, camera);
+        }
+        animate();
+
+        window.addEventListener('resize', () => {
+            renderer.setSize(container.clientWidth, container.clientHeight);
+            camera.aspect = container.clientWidth / container.clientHeight;
+            camera.updateProjectionMatrix();
+        });
+
+    </script>
+</body>
+</html>
